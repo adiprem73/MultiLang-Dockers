@@ -1,9 +1,9 @@
-import CodeCell from "@/components/CodeCell";
+import Notebook from "@/components/Notebook";
 
 export default function Home() {
   return (
     <main className="p-10">
-      <CodeCell />
+      <Notebook />
     </main>
   );
 }
