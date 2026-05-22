@@ -10,9 +10,10 @@ interface Props {
   updateCell: (id: string, updatedFields: Partial<Cell>) => void;
   deleteCell: (id: string) => void;
   addCellBelow: (currentCellId: string, type: "code" | "markdown") => void;
+  sessionId: string;
 }
 
-const CodeCell = ({ cell, updateCell, deleteCell, addCellBelow }: Props) => {
+const CodeCell = ({ cell, updateCell, deleteCell, addCellBelow, sessionId }: Props) => {
     // const handleEditorMount: OnMount = (editor, monaco) => {
     //   editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
     //     runCode();
@@ -41,6 +42,7 @@ const CodeCell = ({ cell, updateCell, deleteCell, addCellBelow }: Props) => {
               body: JSON.stringify({
                 language: languageRef.current,
                 code: latestCode,
+                session_id: sessionId,
               }),
             });
 
@@ -86,6 +88,7 @@ const CodeCell = ({ cell, updateCell, deleteCell, addCellBelow }: Props) => {
           body: JSON.stringify({
             language: cell.language,
             code: cell.code,
+            session_id: sessionId,
           }),
         });
 

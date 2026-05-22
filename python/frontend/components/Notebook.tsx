@@ -7,6 +7,8 @@ import MarkdownCell from "./MarkdownCell";
 const Notebook = () => {
   const [cells, setCells] = useState<Cell[]>([]);
 
+  const sessionId = useRef(crypto.randomUUID());
+
   const hasLoaded = useRef(false);
 
   useEffect(() => {
@@ -80,6 +82,7 @@ const Notebook = () => {
             updateCell={updateCell}
             deleteCell={deleteCell}
             addCellBelow={addCellBelow}
+            sessionId={sessionId.current}
           />
         ) : (
           <MarkdownCell
