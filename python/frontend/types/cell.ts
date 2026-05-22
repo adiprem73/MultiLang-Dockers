@@ -1,6 +1,7 @@
-export interface Cell {
+export type Cell = {
     id: string;
-    language: string;
+    type: "code" | "markdown";
+    language?: string;
     code: string;
-    output: string;
-}
+    output?: string;
+  };
