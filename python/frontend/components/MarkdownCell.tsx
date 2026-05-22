@@ -152,10 +152,52 @@ const MarkdownCell = ({
               borderRadius: 1,
               border: "1px solid rgba(0, 255, 136, 0.2)",
               color: "#fff",
-              "& h1, & h2, & h3, & h4, & h5, & h6": {
+              // "& h1, & h2, & h3, & h4, & h5, & h6": {
+              //   color: "#00ffff",
+              //   marginTop: "0.5em",
+              //   marginBottom: "0.25em",
+              // },
+              "& h1": {
                 color: "#00ffff",
-                marginTop: "0.5em",
-                marginBottom: "0.25em",
+                fontSize: "2.2rem",
+                fontWeight: 700,
+                marginTop: "0.8em",
+                marginBottom: "0.4em",
+              },
+
+              "& h2": {
+                color: "#00ffff",
+                fontSize: "1.8rem",
+                fontWeight: 700,
+                marginTop: "0.7em",
+                marginBottom: "0.35em",
+              },
+
+              "& h3": {
+                color: "#00ffff",
+                fontSize: "1.5rem",
+                fontWeight: 600,
+                marginTop: "0.6em",
+                marginBottom: "0.3em",
+              },
+
+              "& h4": {
+                color: "#00ffff",
+                fontSize: "1.25rem",
+                fontWeight: 600,
+              },
+
+              "& h5": {
+                color: "#00ffff",
+                fontSize: "1.1rem",
+                fontWeight: 600,
+              },
+
+              "& h6": {
+                color: "#00ffff",
+                fontSize: "1rem",
+                fontWeight: 600,
+                opacity: 0.9,
               },
               "& p": { color: "#e0e0e0", lineHeight: 1.7 },
               "& code": {
