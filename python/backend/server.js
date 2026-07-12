@@ -1,56 +1,65 @@
 const express = require("express");
 const cors = require("cors");
 
-const {
-  runPython,
-  restartSession: restartPythonSession,
-} = require("./services/pythonRunner");
-const { runJS, restartJSSession } = require("./services/jsRunner");
-const  runCpp = require("./services/cppRunner");
-const runJava = require("./services/javaRunner");
+const config = require("./config");
+const { requireAuth } = require("./middleware/auth");
+const kernelManager = require("./services/kernelManager");
+
+const notebooksRouter = require("./routes/notebooks");
+const cellsRouter = require("./routes/cells");
+const executeRouter = require("./routes/execute");
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
+app.use(
+  cors({
+    origin: config.ALLOWED_ORIGINS,
+    methods: ["GET", "POST", "PATCH", "DELETE"],
+  }),
+);
 
-app.post("/execute", async (req, res) => {
-  // const { language, code } = req.body;
-  const { language, code, session_id = "default" } = req.body;
+app.use(express.json({ limit: "5mb" }));
 
-  try {
-    let output;
-
-    if (language === "python") {
-      output = await runPython(code, session_id);
-    }
-    if (language === "javascript") {
-      output = await runJS(code, session_id);
-    }
-    if (language === "cpp") {
-      output = await runCpp(code);
-    }
-    if (language === "java") {
-      output = await runJava(code);
-    }
-
-    res.json({
-      output,
-    });
-  } catch (err) {
-    res.status(500).json({
-      error: err,
-    });
-  }
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, kernels: kernelManager.stats() });
 });
 
-app.post("/restart", async (req, res) => {
-  const { session_id = "default" } = req.body;
-  await restartPythonSession(session_id);
-  await restartJSSession(session_id);
-  res.json({ success: true });
+// Everything below runs as the signed-in user. Code execution is authenticated
+// too: an open /execute would let anyone who can reach this port run arbitrary
+// code inside our containers.
+app.use("/api/notebooks", requireAuth, notebooksRouter);
+app.use("/api/cells", requireAuth, cellsRouter);
+app.use("/api", requireAuth, executeRouter);
+
+app.use((_req, res) => {
+  res.status(404).json({ error: "Not found" });
 });
 
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
+app.use((error, _req, res, _next) => {
+  console.error(error);
+  res.status(error.status || 500).json({
+    error: error.message || "Internal server error",
+  });
 });
+
+const server = app.listen(config.PORT, () => {
+  console.log(`API listening on http://localhost:${config.PORT}`);
+  console.log(`Allowed origins: ${config.ALLOWED_ORIGINS.join(", ")}`);
+});
+
+// Kernels are long-lived containers; leaving them behind on shutdown is how you
+// end up with a machine full of orphaned notebook_* containers.
+let shuttingDown = false;
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  console.log(`\n${signal} received — stopping kernels...`);
+  server.close();
+  await kernelManager.disposeAll();
+  process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

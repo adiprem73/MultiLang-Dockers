@@ -1,271 +1,238 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { alpha, Box, Theme, Typography, useTheme } from "@mui/material";
+
 import { Cell } from "@/types/cell";
-import { Paper, IconButton, Box, Typography } from "@mui/material";
-import {
-  Add,
-  Delete,
-  Description,
-  Edit,
-  Visibility,
-} from "@mui/icons-material";
+import { useNotebookStore } from "@/store/notebookStore";
+import { registerEditor } from "@/lib/editorRegistry";
+import CellToolbar from "./CellToolbar";
+
+const markdownStyles = (theme: Theme) => {
+  const heading = theme.palette.primary.main;
+  const accent = theme.palette.notebook.markdown;
+
+  return {
+    color: "text.primary",
+    fontSize: 15,
+    lineHeight: 1.7,
+    "& > *:first-of-type": { mt: 0 },
+    "& > *:last-child": { mb: 0 },
+    "& h1, & h2, & h3, & h4, & h5, & h6": {
+      color: heading,
+      fontWeight: 700,
+      lineHeight: 1.3,
+      mt: "1em",
+      mb: "0.5em",
+    },
+    "& h1": { fontSize: "2rem" },
+    "& h2": { fontSize: "1.6rem" },
+    "& h3": { fontSize: "1.3rem" },
+    "& h4": { fontSize: "1.1rem" },
+    "& h5, & h6": { fontSize: "1rem" },
+    "& p": { my: "0.75em" },
+    "& a": { color: heading },
+    "& code": {
+      bgcolor: alpha(heading, 0.1),
+      color: heading,
+      px: "5px",
+      py: "2px",
+      borderRadius: "4px",
+      fontFamily: "var(--font-geist-mono), monospace",
+      fontSize: "0.9em",
+    },
+    "& pre": {
+      bgcolor: theme.palette.notebook.output,
+      border: "1px solid",
+      borderColor: alpha(heading, 0.15),
+      borderRadius: 1,
+      p: 1.5,
+      overflowX: "auto",
+      "& code": {
+        bgcolor: "transparent",
+        p: 0,
+        color: theme.palette.notebook.outputText,
+      },
+    },
+    "& ul, & ol": { pl: "1.5em", my: "0.75em" },
+    "& li": { mb: "0.25em" },
+    "& blockquote": {
+      borderLeft: `3px solid ${accent}`,
+      pl: 1.5,
+      ml: 0,
+      my: "0.75em",
+      color: "text.secondary",
+    },
+    "& table": { borderCollapse: "collapse", my: "0.75em", width: "100%" },
+    "& th": {
+      bgcolor: alpha(heading, 0.08),
+      color: heading,
+      p: 1,
+      border: "1px solid",
+      borderColor: alpha(heading, 0.15),
+      textAlign: "left",
+    },
+    "& td": { p: 1, border: "1px solid", borderColor: "divider" },
+    "& hr": { border: 0, borderTop: "1px solid", borderColor: "divider", my: 2 },
+    "& img": { maxWidth: "100%" },
+  } as const;
+};
 
 type Props = {
   cell: Cell;
-  updateCell: (id: string, updatedFields: Partial<Cell>) => void;
-  deleteCell: (id: string) => void;
-  addCellBelow: (id: string, type: "code" | "markdown") => void;
-  onSelect: () => void;
+  isSelected: boolean;
+  isEditing: boolean;
 };
 
-const MarkdownCell = ({
-  cell,
-  updateCell,
-  deleteCell,
-  addCellBelow,
-  onSelect,
-}: Props) => {
-  const [preview, setPreview] = useState(true);
-  const [isHovered, setIsHovered] = useState(false);
+const MarkdownCell = ({ cell, isSelected, isEditing }: Props) => {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const theme = useTheme();
+  const nb = theme.palette.notebook;
+  const accent = nb.markdown;
+
+  const selectCell = useNotebookStore((state) => state.selectCell);
+  const setMode = useNotebookStore((state) => state.setMode);
+  const updateCellSource = useNotebookStore((state) => state.updateCellSource);
+
+  const prose = useMemo(() => markdownStyles(theme), [theme]);
+
+  useEffect(
+    () =>
+      registerEditor(cell.id, () => {
+        // Focus lands after the textarea has replaced the preview.
+        requestAnimationFrame(() => textareaRef.current?.focus());
+      }),
+    [cell.id],
+  );
+
+  // Claim the caret if this cell was just created by Shift/Alt+Enter.
+  useEffect(() => {
+    if (!isEditing) return;
+    if (!useNotebookStore.getState().consumeFocus(cell.id)) return;
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [cell.id, isEditing]);
+
+  // Markdown renders when you leave edit mode, so an empty cell in preview
+  // would be an invisible click target. Show a hint instead.
+  const isEmpty = !cell.source.trim();
+
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    const store = useNotebookStore.getState();
+
+    if (event.key === "Enter" && event.shiftKey) {
+      // Rendering a markdown cell is its "run": same advance-or-append rule as
+      // a code cell, so you can walk down a notebook of mixed cells.
+      event.preventDefault();
+      textareaRef.current?.blur();
+      store.runAndAdvance(cell.id);
+      return;
+    }
+
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      textareaRef.current?.blur();
+      store.setMode("command");
+      return;
+    }
+
+    if (event.key === "Enter" && event.altKey) {
+      event.preventDefault();
+      textareaRef.current?.blur();
+      store.runAndInsertBelow(cell.id);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      textareaRef.current?.blur();
+      store.setMode("command");
+    }
+  };
 
   return (
-    <Paper
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onClick={onSelect}
+    <Box
+      onClick={() => selectCell(cell.id)}
+      onDoubleClick={() => {
+        setMode("edit");
+        requestAnimationFrame(() => textareaRef.current?.focus());
+      }}
       sx={{
-        mb: 2,
-        bgcolor: "rgba(20, 20, 30, 0.5)",
-        backdropFilter: "blur(20px)",
-        border: "1px solid rgba(255, 255, 255, 0.1)",
-        borderLeft: "4px solid #00ff88",
-        boxShadow: "0 4px 20px rgba(0, 0, 0, 0.3)",
-        transition: "all 0.3s ease",
-        "&:hover": {
-          bgcolor: "rgba(30, 30, 40, 0.6)",
-          border: "1px solid rgba(0, 255, 136, 0.5)",
-          borderLeft: "4px solid #00ff88",
-          boxShadow: "0 0 20px rgba(0, 255, 136, 0.4)",
-        },
+        display: "flex",
+        mb: 1.5,
+        borderRadius: 1.5,
+        border: "1px solid",
+        borderColor: isSelected ? alpha(accent, 0.45) : nb.cellBorder,
+        bgcolor: isSelected ? nb.cellSelected : nb.cell,
+        transition: "border-color .15s, background-color .15s",
+        "&:hover": { borderColor: alpha(accent, 0.3) },
       }}
     >
-      {/* Toolbar */}
       <Box
         sx={{
-          display: "flex",
-          alignItems: "center",
-          p: 1,
-          borderBottom: "1px solid rgba(0, 255, 136, 0.2)",
-          bgcolor: "rgba(0, 0, 0, 0.3)",
+          width: 4,
+          flexShrink: 0,
+          borderRadius: "6px 0 0 6px",
+          bgcolor: !isSelected
+            ? "transparent"
+            : isEditing
+              ? accent
+              : "action.disabled",
+          boxShadow:
+            isSelected && isEditing && theme.palette.mode === "dark"
+              ? `0 0 12px ${accent}`
+              : "none",
         }}
-      >
-        <Description
-          sx={{
-            color: "#00ff88",
-            fontSize: 20,
-            filter: "drop-shadow(0 0 6px #00ff88)",
-            ml: 0.5,
-          }}
-        />
-        <Typography
-          variant="caption"
-          sx={{ color: "#00ff88", ml: 1, letterSpacing: 1, opacity: 0.8 }}
-        >
-          MARKDOWN
-        </Typography>
+      />
 
-        <Box sx={{ flexGrow: 1 }} />
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+        <CellToolbar cell={cell} visible={isSelected} accent={accent} />
 
-        {isHovered && (
-          <Box sx={{ display: "flex", gap: 0.5 }}>
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation(); // prevent triggering onSelect
-                setPreview(!preview);
-              }}
+        <Box sx={{ p: 2 }}>
+          {isEditing ? (
+            <Box
+              component="textarea"
+              ref={textareaRef}
+              value={cell.source}
+              onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                updateCellSource(cell.id, event.target.value)
+              }
+              onKeyDown={handleKeyDown}
+              onFocus={() => setMode("edit")}
+              placeholder="# Write markdown here…"
+              rows={Math.max(4, cell.source.split("\n").length + 1)}
               sx={{
-                color: "#00ffff",
-                filter: "drop-shadow(0 0 6px #00ffff)",
-                "&:hover": {
-                  bgcolor: "rgba(0, 255, 255, 0.2)",
-                  filter: "drop-shadow(0 0 12px #00ffff)",
-                },
+                width: "100%",
+                bgcolor: nb.output,
+                border: "1px solid",
+                borderColor: alpha(accent, 0.25),
+                borderRadius: 1,
+                p: 1.5,
+                color: "text.primary",
+                fontFamily: "var(--font-geist-mono), monospace",
+                fontSize: 13,
+                lineHeight: 1.6,
+                outline: "none",
+                resize: "vertical",
               }}
-            >
-              {preview ? (
-                <Edit fontSize="small" />
-              ) : (
-                <Visibility fontSize="small" />
-              )}
-            </IconButton>
-
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                addCellBelow(cell.id, "code");
-              }}
-              sx={{
-                color: "#00ffff",
-                filter: "drop-shadow(0 0 6px #00ffff)",
-                "&:hover": {
-                  bgcolor: "rgba(0, 255, 255, 0.2)",
-                  filter: "drop-shadow(0 0 12px #00ffff)",
-                },
-              }}
-            >
-              <Add fontSize="small" />
-            </IconButton>
-
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteCell(cell.id);
-              }}
-              sx={{
-                color: "#ff0066",
-                filter: "drop-shadow(0 0 6px #ff0066)",
-                "&:hover": {
-                  bgcolor: "rgba(255, 0, 102, 0.2)",
-                  filter: "drop-shadow(0 0 12px #ff0066)",
-                },
-              }}
-            >
-              <Delete fontSize="small" />
-            </IconButton>
-          </Box>
-        )}
+            />
+          ) : isEmpty ? (
+            <Typography sx={{ color: "text.disabled", fontStyle: "italic" }}>
+              Empty markdown cell — double-click to edit
+            </Typography>
+          ) : (
+            <Box sx={prose}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {cell.source}
+              </ReactMarkdown>
+            </Box>
+          )}
+        </Box>
       </Box>
-
-      {/* Content area */}
-      <Box sx={{ p: 2 }}>
-        {preview ? (
-          <Box
-            sx={{
-              p: 2,
-              bgcolor: "rgba(0, 0, 0, 0.3)",
-              borderRadius: 1,
-              border: "1px solid rgba(0, 255, 136, 0.2)",
-              color: "#fff",
-              // "& h1, & h2, & h3, & h4, & h5, & h6": {
-              //   color: "#00ffff",
-              //   marginTop: "0.5em",
-              //   marginBottom: "0.25em",
-              // },
-              "& h1": {
-                color: "#00ffff",
-                fontSize: "2.2rem",
-                fontWeight: 700,
-                marginTop: "0.8em",
-                marginBottom: "0.4em",
-              },
-
-              "& h2": {
-                color: "#00ffff",
-                fontSize: "1.8rem",
-                fontWeight: 700,
-                marginTop: "0.7em",
-                marginBottom: "0.35em",
-              },
-
-              "& h3": {
-                color: "#00ffff",
-                fontSize: "1.5rem",
-                fontWeight: 600,
-                marginTop: "0.6em",
-                marginBottom: "0.3em",
-              },
-
-              "& h4": {
-                color: "#00ffff",
-                fontSize: "1.25rem",
-                fontWeight: 600,
-              },
-
-              "& h5": {
-                color: "#00ffff",
-                fontSize: "1.1rem",
-                fontWeight: 600,
-              },
-
-              "& h6": {
-                color: "#00ffff",
-                fontSize: "1rem",
-                fontWeight: 600,
-                opacity: 0.9,
-              },
-              "& p": { color: "#e0e0e0", lineHeight: 1.7 },
-              "& code": {
-                bgcolor: "rgba(0, 255, 255, 0.1)",
-                color: "#00ffff",
-                padding: "2px 6px",
-                borderRadius: "4px",
-                fontFamily: "monospace",
-              },
-              "& pre": {
-                bgcolor: "rgba(0, 0, 0, 0.5)",
-                border: "1px solid rgba(0, 255, 255, 0.2)",
-                borderRadius: "4px",
-                padding: "12px",
-                overflowX: "auto",
-              },
-              "& ul, & ol": { color: "#e0e0e0", paddingLeft: "1.5em" },
-              "& li": { marginBottom: "4px" },
-              "& blockquote": {
-                borderLeft: "3px solid #00ff88",
-                paddingLeft: "12px",
-                color: "#aaa",
-                margin: "8px 0",
-              },
-              "& a": { color: "#00ffff" },
-              "& table": { width: "100%", borderCollapse: "collapse" },
-              "& th": {
-                bgcolor: "rgba(0, 255, 255, 0.1)",
-                color: "#00ffff",
-                padding: "8px",
-                border: "1px solid rgba(0, 255, 255, 0.2)",
-              },
-              "& td": {
-                padding: "8px",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                color: "#e0e0e0",
-              },
-            }}
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {cell.code}
-            </ReactMarkdown>
-          </Box>
-        ) : (
-          <textarea
-            value={cell.code}
-            onChange={(e) => updateCell(cell.id, { code: e.target.value })}
-            placeholder="# Write markdown here"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "100%",
-              minHeight: "200px",
-              background: "rgba(0, 0, 0, 0.3)",
-              border: "1px solid rgba(0, 255, 136, 0.2)",
-              borderRadius: "4px",
-              padding: "12px",
-              color: "#fff",
-              fontFamily: "monospace",
-              fontSize: "14px",
-              outline: "none",
-              resize: "vertical",
-              lineHeight: "1.6",
-            }}
-          />
-        )}
-      </Box>
-    </Paper>
+    </Box>
   );
 };
 
-export default MarkdownCell;
+export default memo(MarkdownCell);
